@@ -63,8 +63,8 @@ def logistic_regression(y, tx, initial_w, max_iters, gamma):
         w = w - gamma * gradient
 
     z = tx @ w
-    loss = np.mean(np.logaddexp(0, z) - y * z) # logaddexp(a, b) => log(e^a + e^b)
-    return z, loss
+    loss = np.mean(np.logaddexp(0, z) - y * z)  # logaddexp(a, b) => log(e^a + e^b)
+    return w, loss
 
 
 def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
@@ -76,9 +76,9 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
     for i in range(max_iters):
         p = sigmoid(tx @ w)
         error = p - y
-        gradient = (tx.T @ error) / n + 2 * lambda_ * w        
+        gradient = (tx.T @ error) / n + 2 * lambda_ * w
         w = w - gamma * gradient
 
     z = tx @ w
-    loss = np.mean(np.logaddexp(0, z) - y * z) + lambda_ * np.sum(w**2) # this is the term penalizing large weights to reduce overfitting
-    return z, loss
+    loss = np.mean(np.logaddexp(0, z) - y * z)
+    return w, loss
