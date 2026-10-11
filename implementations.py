@@ -46,20 +46,39 @@ def ridge_regression(y, tx, lambda_):
     # return w, loss
     raise NotImplementedError
 
+def sigmoid(z):
+    return 1 / (1 + np.exp(-z))
+
 
 def logistic_regression(y, tx, initial_w, max_iters, gamma):
     """Logistic regression using gradient descent; y must be 0 or 1."""
-    # TODO: Initialize weights.
-    # TODO: Compute probabilities, gradient, and weight updates.
-    # TODO: Compute the final loss.
-    # return w, loss
-    raise NotImplementedError
+    # Initialize weights.
+    w = initial_w.copy()
+    n = len(y)
+
+    for i in range(max_iters):
+        p = sigmoid(tx @ w)
+        error = p - y
+        gradient = (tx.T @ error) / n
+        w = w - gamma * gradient
+
+    z = tx @ w
+    loss = np.mean(np.logaddexp(0, z) - y * z) # logaddexp(a, b) => log(e^a + e^b)
+    return z, loss
 
 
 def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
     """Logistic regression with L2 penalty lambda_ * ||w||²."""
-    # TODO: Initialize weights.
-    # TODO: Compute the regularized gradient and update weights.
-    # TODO: Compute the loss required by your assignment.
-    # return w, loss
-    raise NotImplementedError
+    # Initialize weights.
+    w = initial_w.copy()
+    n = len(y)
+
+    for i in range(max_iters):
+        p = sigmoid(tx @ w)
+        error = p - y
+        gradient = (tx.T @ error) / n + 2 * lambda_ * w        
+        w = w - gamma * gradient
+
+    z = tx @ w
+    loss = np.mean(np.logaddexp(0, z) - y * z) + lambda_ * np.sum(w**2) # this is the term penalizing large weights to reduce overfitting
+    return z, loss
