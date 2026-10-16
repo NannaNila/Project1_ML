@@ -15,11 +15,31 @@ import numpy as np
 
 def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
     """Linear regression using gradient descent."""
-    # TODO: Initialize weights.
-    # TODO: Compute the gradient and update weights at each iteration.
-    # TODO: Compute the final loss.
-    # return w, loss
-    raise NotImplementedError
+    # Initialize weights.
+    ws = [initial_w]
+    losses = []
+    w = initial_w
+
+    for n_iter in range (max_iters):
+        #  Compute the gradient and update weights at each iteration.
+        err = y - tx.dot(w)
+        grad = -tx.T.dot(err)/len(err)
+
+        # Compute the final loss.
+        loss = 0.5*np.mean(err**2)
+        w = w-gamma*grad
+        ws.append(w)
+        losses.append(loss)
+
+        print(w,
+                    "GD iter. {bi}/{ti}: loss={l}, w0={w0}, w1={w1}".format(
+                        bi=n_iter, ti=max_iters - 1, l=loss, w0=w[0], w1=w[1])
+        )
+        # return w, loss
+        
+    return losses, ws
+    #raise NotImplementedError
+    
 
 
 def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
@@ -33,10 +53,16 @@ def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
 
 def least_squares(y, tx):
     """Least squares regression using normal equations."""
-    # TODO: Solve the normal equations for the weights.
-    # TODO: Compute the final loss.
+    a=tx.T.dot(tx)
+    b=tx.T.dot(y)
+    
+    # Solve the normal equations for the weights.
+    w=np.linalg.lstsq(a,b,rcond=None)[0]
+    # Compute the final loss.
+    loss=0.5*np.mean((y-tx.dot(w))**2)
     # return w, loss
-    raise NotImplementedError
+    return w,loss
+    #raise NotImplementedError
 
 
 def ridge_regression(y, tx, lambda_):

@@ -1,0 +1,48 @@
+from implementations import mean_squared_error_gd
+from helpers import *
+def main():
+    x_train, x_test, y_train, train_ids, test_ids=load_csv_data("data/dataset/")
+
+    #Handle missing values by replacing them with the mean of the corresponding feature.
+    medie = np.nanmean(x_train, axis=0)
+    righe, colonne = np.where(np.isnan(x_train))
+    x_train[righe, colonne] = medie[colonne]
+    righe, colonne = np.where(np.isnan(x_test))
+    x_test[righe, colonne] = medie[colonne]
+
+    mu = np.mean(x_train, axis=0)
+    sigma = np.std(x_train, axis=0)
+
+    sigma[sigma == 0] = 1
+
+    """
+    print("Media di x_train:", mu)
+    print("Deviazione standard di x_train:", sigma)
+    """
+    x_train = (x_train - mu) / sigma
+    x_test = (x_test - mu) / sigma
+
+    if np.isnan(x_train).any() or np.isnan(x_test).any():
+        print("Error: NaN values found in the dataset after preprocessing.")
+        return
+    """
+    # Testing the mean_squared_error_gd function with a validation set
+    print("X tutto finito:", np.isfinite(x_train).all())
+    print("Y tutto finito:", np.isfinite(y_train).all())
+    print("Valore massimo assoluto di X:", np.max(np.abs(x_train)))
+    print("Medie finite:", np.isfinite(medie).all())"""
+    #Training
+    losses, ws = mean_squared_error_gd(y_train, x_train, initial_w=np.zeros(x_train.shape[1]), max_iters=1000, gamma=0.00000001)
+    w = ws[-1]
+    y_pred = x_test @ w
+    # Post-processing predictions to be either -1 or 1
+    for i in range(len(y_pred)):
+        if y_pred[i] < 0:
+            y_pred[i] = -1
+        else:
+            y_pred[i] = 1
+    
+    create_csv_submission(test_ids, y_pred, "mean_squared_error_gd0.csv")
+
+if __name__ == "__main__":
+    main()
