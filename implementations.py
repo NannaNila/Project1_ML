@@ -1,5 +1,6 @@
 import numpy as np
 
+
 # Shared parameters:
 # y         : target values, shape (N,)
 # tx        : input matrix, shape (N, D)
@@ -44,11 +45,25 @@ def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
 
 def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
     """Linear regression using stochastic gradient descent."""
-    # TODO: Initialize weights.
-    # TODO: Sample a data point and update weights at each iteration.
-    # TODO: Compute the final loss on the full dataset.
-    # return w, loss
-    raise NotImplementedError
+    # Initialize weights.
+
+    w = initial_w.copy()
+
+    # Sample a data point and update weights at each iteration.
+
+    for n_iter in range(max_iters):
+        start_index = np.random.randint(len(y))
+        end_index = start_index + 1
+        y_batch, tx_batch = y[start_index:end_index], tx[start_index:end_index]
+        err = y_batch - tx_batch.dot(w)
+        grad = -tx_batch.T.dot(err) / len(err)
+        w = w - gamma * grad
+
+    # Compute the final loss on the full dataset.
+            
+    e = y - tx.dot(w)
+    loss = e.dot(e) / (2 * len(e))
+    return w, loss
 
 
 def least_squares(y, tx):
@@ -67,10 +82,17 @@ def least_squares(y, tx):
 
 def ridge_regression(y, tx, lambda_):
     """Ridge regression using normal equations."""
-    # TODO: Construct and solve the regularized normal equations.
-    # TODO: Compute the loss required by your assignment.
-    # return w, loss
-    raise NotImplementedError
+    # Construct and solve the regularized normal equations.
+    aI = 2 * tx.shape[0] * lambda_ * np.identity(tx.shape[1])
+    a = tx.T.dot(tx) + aI
+    b = tx.T.dot(y)
+    w = np.linalg.solve(a, b)
+
+    # Compute the loss required by your assignment.
+
+    e = y - tx.dot(w)
+    loss = e.dot(e) / (2 * len(e))
+    return w, loss
 
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))
