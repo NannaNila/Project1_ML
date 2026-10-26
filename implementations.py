@@ -15,32 +15,17 @@ import numpy as np
 
 
 def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
-    """Linear regression using gradient descent."""
-    # Initialize weights.
-    ws = [initial_w]
-    losses = []
-    w = initial_w
+    """Return final weights and half-MSE after full-batch gradient descent."""
+    w = initial_w.copy()
 
-    for n_iter in range (max_iters):
-        #  Compute the gradient and update weights at each iteration.
+    for _ in range(max_iters):
         err = y - tx.dot(w)
-        grad = -tx.T.dot(err)/len(err)
+        grad = -tx.T.dot(err) / len(err)
+        w = w - gamma * grad
 
-        # Compute the final loss.
-        loss = 0.5*np.mean(err**2)
-        w = w-gamma*grad
-        ws.append(w)
-        losses.append(loss)
-
-        print(w,
-                    "GD iter. {bi}/{ti}: loss={l}, w0={w0}, w1={w1}".format(
-                        bi=n_iter, ti=max_iters - 1, l=loss, w0=w[0], w1=w[1])
-        )
-        # return w, loss
-        
-    return losses, ws
-    #raise NotImplementedError
-    
+    # Evaluate at the returned weights, including when max_iters is zero.
+    loss = 0.5 * np.mean((y - tx.dot(w)) ** 2)
+    return w, loss
 
 
 def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
@@ -60,7 +45,7 @@ def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
         w = w - gamma * grad
 
     # Compute the final loss on the full dataset.
-            
+
     e = y - tx.dot(w)
     loss = e.dot(e) / (2 * len(e))
     return w, loss
@@ -68,16 +53,14 @@ def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
 
 def least_squares(y, tx):
     """Least squares regression using normal equations."""
-    a=tx.T.dot(tx)
-    b=tx.T.dot(y)
-    
+    a = tx.T.dot(tx)
+    b = tx.T.dot(y)
+
     # Solve the normal equations for the weights.
-    w=np.linalg.lstsq(a,b,rcond=None)[0]
+    w = np.linalg.solve(a, b)
     # Compute the final loss.
-    loss=0.5*np.mean((y-tx.dot(w))**2)
-    # return w, loss
-    return w,loss
-    #raise NotImplementedError
+    loss = 0.5 * np.mean((y - tx.dot(w)) ** 2)
+    return w, loss
 
 
 def ridge_regression(y, tx, lambda_):
@@ -88,14 +71,16 @@ def ridge_regression(y, tx, lambda_):
     b = tx.T.dot(y)
     w = np.linalg.solve(a, b)
 
-    # Compute the loss required by your assignment.
+    # Return half-MSE without the regularization penalty.
 
     e = y - tx.dot(w)
     loss = e.dot(e) / (2 * len(e))
     return w, loss
 
+
 def sigmoid(z):
-    return 1 / (1 + np.exp(-z))
+    """Compute the sigmoid without overflowing for large negative inputs."""
+    return np.exp(-np.logaddexp(0, -z))
 
 
 def logistic_regression(y, tx, initial_w, max_iters, gamma):
@@ -128,5 +113,6 @@ def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
         w = w - gamma * gradient
 
     z = tx @ w
+    # Return the mean logistic loss without the regularization penalty.
     loss = np.mean(np.logaddexp(0, z) - y * z)
     return w, loss
