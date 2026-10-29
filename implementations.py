@@ -1,26 +1,16 @@
 import numpy as np
 
-
-# Shared parameters:
-# y         : target values, shape (N,)
-# tx        : input matrix, shape (N, D)
-# initial_w : initial weights, shape (D,)
-# max_iters : number of optimization iterations
-# gamma     : learning rate
-# lambda_   : regularization strength
-#
-# Returns:
-# w         : learned weights, shape (D,)
-# loss      : final loss (scalar)
-
-
 def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
     """Return final weights and half-MSE after full-batch gradient descent."""
     w = initial_w.copy()
 
+    # These products are constant across iterations. This is the same batch-GD
+    # gradient, evaluated without scanning the full dataset at every step.
+    gram = tx.T.dot(tx) / len(y)
+    rhs = tx.T.dot(y) / len(y)
+
     for _ in range(max_iters):
-        err = y - tx.dot(w)
-        grad = -tx.T.dot(err) / len(err)
+        grad = gram.dot(w) - rhs
         w = w - gamma * grad
 
     # Evaluate at the returned weights, including when max_iters is zero.
