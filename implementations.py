@@ -48,7 +48,6 @@ def least_squares(y, tx):
 
     # Solve the normal equations for the weights.
     w = np.linalg.lstsq(a,b,rcond=1e-100)[0]
-    #w = np.linalg.solve(a, b)
     # Compute the final loss.
     loss = 0.5 * np.mean((y - tx.dot(w)) ** 2)
     return w, loss
