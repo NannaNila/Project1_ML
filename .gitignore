@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local dataset; retain the teacher's sample submission template.
+data/dataset/x_train.csv
+data/dataset/x_test.csv
+data/dataset/y_train.csv
+
+# Generated results and predictions are reproducible, not source files.
+output/
+submission*.csv
