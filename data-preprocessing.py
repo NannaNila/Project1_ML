@@ -98,14 +98,16 @@ def clean_data(x, names):
     return clean
 
 
-def fit_preprocessing(x, names):
+def fit_preprocessing(x, names, nonlinear=False, max_missing=0.8):
     """Fit sparse-column filtering, encoding, medians and scaling on x only."""
     names = np.asarray(names, dtype=str)
     if x.ndim != 2 or len(names) != x.shape[1] or not len(x):
         raise ValueError('Expected nonempty rows and a name for every raw column')
+    if not np.isfinite(max_missing) or not 0 <= max_missing < 1:
+        raise ValueError('max_missing must be between zero (inclusive) and one (exclusive)')
     clean = clean_data(x, names)
     dropped = ADMIN | {n for n, equivalent in EQUIVALENTS.items() if equivalent in names}
-    eligible = (~np.isin(names, list(dropped))) & (np.isnan(clean).mean(axis=0) <= .8)
+    eligible = (~np.isin(names, list(dropped))) & (np.isnan(clean).mean(axis=0) <= max_missing)
     # Keep missingness variation even when there is only one observed value.
     kept = np.array([j for j in np.flatnonzero(eligible)
                      if len(np.unique(clean[np.isfinite(clean[:, j]), j])) > 1
@@ -128,6 +130,14 @@ def fit_preprocessing(x, names):
                  level_counts=np.array([len(v) for v in levels], dtype=int),
                  missing_columns=missing_columns, medians=medians,
                  means=means, scales=scales)
+    if nonlinear:
+        # Three predeclared terms from measurements, never arbitrary category codes.
+        positions = [int(np.flatnonzero(names[numeric] == name)[0])
+                     for name in ('_AGE80', '_BMI5')]
+        state['nonlinear_positions'] = np.array(positions, dtype=int)
+        terms = nonlinear_terms((filled - means) / scales, state)
+        state['nonlinear_means'] = terms.mean(axis=0)
+        state['nonlinear_scales'] = np.maximum(terms.std(axis=0), 1e-10)
     tx = transform(x, state)
     # Remove cross-variable dependencies too: the supplied least_squares uses a
     # normal-equation solve, and unregularized logistic/SGD use whitening.
@@ -143,6 +153,11 @@ def fit_preprocessing(x, names):
         residual[j, :] = residual[:, j] = 0
     state['independent_columns'] = np.array(independent, dtype=int)
     return state
+
+
+def nonlinear_terms(standardized_numeric, state):
+    age, bmi = standardized_numeric[:, state['nonlinear_positions']].T
+    return np.column_stack((age**2, bmi**2, age * bmi))
 
 
 def transform(x, state):
@@ -163,5 +178,8 @@ def transform(x, state):
         values = state['levels'][offset:offset + count]
         blocks.extend([clean[:, j, None] == values, np.isnan(clean[:, j, None])])
         offset += count
+    if 'nonlinear_positions' in state:
+        terms = nonlinear_terms((filled - state['means']) / state['scales'], state)
+        blocks.append((terms - state['nonlinear_means']) / state['nonlinear_scales'])
     tx = np.column_stack(blocks)
     return tx[:, state['independent_columns']] if 'independent_columns' in state else tx

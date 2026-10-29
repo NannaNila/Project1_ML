@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import importlib.util
+from functools import partial
 import random
 import time
 from pathlib import Path
@@ -19,8 +20,9 @@ MODELS = (
     "logistic_regression",
     "reg_logistic_regression",
     "svm",
+    "svm_squared_hinge",
 )
-DEFAULT_LAMBDA = {"ridge_regression": 0.0001, "reg_logistic_regression": 0.001, "svm": 0.001}
+DEFAULT_LAMBDA = {"ridge_regression": 0.0001, "reg_logistic_regression": 0.001, "svm": 0.001, "svm_squared_hinge": 0.001}
 # A dash is not valid in a normal Python import, so load the requested filename.
 _spec = importlib.util.spec_from_file_location("data_preprocessing", ROOT / "data-preprocessing.py")
 preprocessing = importlib.util.module_from_spec(_spec)
@@ -52,7 +54,7 @@ def inner_folds(y, seed=104):
 
 
 def call_model(name, y, tx, w, iterations, gamma, l2):
-    """These are the only calls that learn model weights."""
+    """Dispatch the six supplied implementations.py training functions."""
     if name == "mean_squared_error_gd":
         return implementations.mean_squared_error_gd(y, tx, w, iterations, gamma)
     if name == "mean_squared_error_sgd":
@@ -77,6 +79,8 @@ def fit_svm(
     gamma=1e-4,
     seed=42,
     tol=1e-5,
+    loss="hinge",
+    positive_weight=1.0,
 ):
     """Fit a linear SVM and report convergence at objective checkpoints."""
     if lambda_ <= 0 or not np.isfinite(lambda_):
@@ -89,6 +93,29 @@ def fit_svm(
         raise ValueError("Expected a nonempty matrix and one label per row")
     if not np.isfinite(X).all() or not np.isin(y, [-1, 1]).all():
         raise ValueError("SVM requires finite features and -1/+1 labels")
+    if loss not in {"hinge", "squared_hinge"}:
+        raise ValueError("Unknown SVM loss")
+    if loss == "squared_hinge":
+        primal_fn = svm_model.calculate_squared_primal_objective
+        dual_fn = svm_model.calculate_squared_dual_objective
+        coordinate_fn = svm_model.calculate_squared_coordinate_update
+        gradient_fn = svm_model.calculate_squared_stochastic_gradient
+    else:
+        primal_fn = svm_model.calculate_primal_objective
+        dual_fn = svm_model.calculate_dual_objective
+        coordinate_fn = svm_model.calculate_coordinate_update
+        gradient_fn = svm_model.calculate_stochastic_gradient
+    if not np.isfinite(positive_weight) or positive_weight <= 0:
+        raise ValueError("positive_weight must be finite and positive")
+    if positive_weight != 1:
+        if loss != "squared_hinge":
+            raise ValueError("Class weighting is implemented for squared hinge only")
+        weights = np.where(y == 1, positive_weight, 1.0)
+        weights /= weights.mean()  # Keep average loss weight one across settings.
+        primal_fn = partial(primal_fn, sample_weights=weights)
+        dual_fn = partial(dual_fn, sample_weights=weights)
+        coordinate_fn = partial(coordinate_fn, sample_weights=weights)
+        gradient_fn = partial(gradient_fn, sample_weights=weights)
     w = np.zeros(X.shape[1])
     alpha = np.zeros(len(y)) if optimizer == "coordinate" else None
     rng = random.Random(seed)
@@ -99,14 +126,14 @@ def fit_svm(
     for it in range(max_iters):
         n = rng.randint(0, len(y) - 1)
         if optimizer == "coordinate":
-            w, alpha = svm_model.calculate_coordinate_update(y, X, lambda_, alpha, w, n)
+            w, alpha = coordinate_fn(y, X, lambda_, alpha, w, n)
         else:
-            grad = svm_model.calculate_stochastic_gradient(y, X, w, lambda_, n)
+            grad = gradient_fn(y, X, w, lambda_, n)
             w -= gamma / (it + 1) * grad
         if (it + 1) % check_every == 0 or it + 1 == max_iters:
-            primal = svm_model.calculate_primal_objective(y, X, w, lambda_)
+            primal = primal_fn(y, X, w, lambda_)
             if alpha is not None:
-                dual = svm_model.calculate_dual_objective(w, alpha, lambda_)
+                dual = dual_fn(w, alpha, lambda_)
                 gap = primal - dual
             history.append(dict(iterations=it + 1, primal=primal, dual=dual, gap=gap))
             if not np.isfinite(primal):
@@ -114,6 +141,8 @@ def fit_svm(
             if alpha is not None and -1e-10 <= gap <= tol:
                 break
     info = dict(
+        loss=loss,
+        positive_weight=positive_weight,
         iterations=it + 1,
         objective=primal,
         dual_objective=dual,
@@ -125,9 +154,8 @@ def fit_svm(
             else "iteration cap (no dual certificate for SGD)"
         ),
         optimizer=(
-            "Exercise 06 dual coordinate ascent"
-            if alpha is not None
-            else "Exercise 06 SGD"
+            ("Squared-hinge" if loss == "squared_hinge" else "Exercise 06")
+            + (" dual coordinate ascent" if alpha is not None else " SGD")
         ),
         gamma=gamma if optimizer == "sgd" else None,
         learning_rate_schedule="gamma/(iteration+1)" if optimizer == "sgd" else None,
@@ -139,11 +167,13 @@ def fit_svm(
 
 def train(name, tx, y, l2, args):
     """Train from zero, calling the supplied function in chunks until stopped."""
-    if name == "svm":
+    if name in {"svm", "svm_squared_hinge"}:
         w, _, info = fit_svm(
             tx, y, lambda_=l2, max_iters=args.svm_iters,
             optimizer=args.svm_optimizer, gamma=args.gamma or 1e-4,
             seed=args.seed, tol=args.svm_tol,
+            loss="squared_hinge" if name == "svm_squared_hinge" else "hinge",
+            positive_weight=getattr(args, "positive_weight", 1.0) if name == "svm_squared_hinge" else 1.0,
         )
         return w, info
     started = time.monotonic()
@@ -294,6 +324,12 @@ def main():
         "--sgd-loss-tol", type=float, default=1e-4,
         help="SGD training-loss gap tolerance (two consecutive checkpoints)",
     )
+    parser.add_argument("--nonlinear", action="store_true",
+                        help="Add age squared, BMI squared, and age times BMI")
+    parser.add_argument("--max-missing", type=float, default=0.8,
+                        help="Drop raw fields above this missing fraction (default: 0.8)")
+    parser.add_argument("--positive-weight", type=float, default=1.0,
+                        help="Positive-class loss weight for squared-hinge SVM")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data/dataset")
     parser.add_argument("--output-dir", type=Path, help="Default: output/corrected_sergi")
@@ -308,6 +344,12 @@ def main():
         help="Quick check on every 50th training row",
     )
     args = parser.parse_args()
+    if not np.isfinite(args.max_missing) or not 0 <= args.max_missing < 1:
+        parser.error("--max-missing must be in [0, 1)")
+    if not np.isfinite(args.positive_weight) or args.positive_weight <= 0:
+        parser.error("--positive-weight must be finite and positive")
+    if args.positive_weight != 1 and args.model not in {"svm_squared_hinge", "all"}:
+        parser.error("--positive-weight applies to svm_squared_hinge")
     if args.tol is None:
         args.tol = 1e-4
     if args.output_dir is None:
@@ -316,7 +358,7 @@ def main():
         parser.error("--sgd-loss-tol must be finite and positive")
     if args.svm_iters < 1 or not np.isfinite(args.svm_tol) or args.svm_tol <= 0:
         parser.error("SVM iteration cap and tolerance must be positive")
-    if args.model in {"svm", "all"}:
+    if args.model in {"svm", "svm_squared_hinge", "all"}:
         if args.l2 is not None and args.l2 <= 0:
             parser.error("SVM lambda must be positive")
         if args.gamma is not None and args.svm_optimizer != "sgd":
@@ -354,7 +396,9 @@ def main():
         raise ValueError("Expected -1/+1 training labels")
     with (args.data_dir / "x_train.csv").open() as source:
         feature_names = np.array(next(csv.reader(source))[1:])
-    fit = lambda rows: preprocessing.fit_preprocessing(rows, feature_names)
+    fit = lambda rows: preprocessing.fit_preprocessing(
+        rows, feature_names, nonlinear=args.nonlinear, max_missing=args.max_missing
+    )
     encode = preprocessing.transform
     development, test = split_indices(y, args.seed)
     x_train, y_train = x[development], y[development]
@@ -445,6 +489,9 @@ def main():
         tolerance=args.tol,
         sgd_loss_tolerance=args.sgd_loss_tol,
         preprocessing="corrected_sergi",
+        nonlinear=args.nonlinear,
+        max_missing=args.max_missing,
+        positive_weight=args.positive_weight,
         svm_iters=args.svm_iters,
         svm_tolerance=args.svm_tol,
         feature_columns=tx.shape[1],
