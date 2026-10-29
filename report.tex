@@ -1,0 +1,224 @@
+% ML Project 1 report - CS-433, EPFL, Fall 2026.
+% Build from the project root with: tectonic --outdir output/pdf report.tex
+% Numerical sources: output/corrected_sergi/results.json,
+% output/squared_hinge_svm/results.json, output/f1_improvement/results.json
+% and output/f1_improvement/selection.json. Older folders use other pipelines.
+\documentclass[10pt,conference,compsocconf,a4paper]{latex-example-paper/IEEEtran}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily\scriptsize,breaklines=true,columns=fullflexible}
+
+\begin{document}
+\title{Predicting Coronary Heart Disease from Survey Data:\\
+What Helped Our Linear Models?}
+\author{Sergi Boned Ferrer, Jules Silvestre, Daniela Hu\\
+School of Computer and Communication Sciences, EPFL, Switzerland}
+\maketitle
+
+\begin{abstract}
+We compared six linear methods and two support vector machine (SVM) losses
+for predicting self-reported coronary heart disease from the BRFSS survey.
+We first cleaned survey answers and built a shared set of features.
+Logistic regression was the strongest initial model, with local test F1
+0.42456. We then investigated changes to the SVM. Squaring its hinge loss
+improved F1 from 0.22464 to 0.42332. Giving positive examples more weight
+and keeping more questions with missing answers further increased F1 to
+0.42672. Adding age and BMI combinations did not improve validation F1
+enough to keep them. All model choices used validation predictions within
+the training portion of an 80/20 split. Reported test scores are local,
+not competition leaderboard scores.
+\end{abstract}
+
+\section{Task and Experimental Setup}
+We predict self-reported coronary heart disease (MICHD), including heart
+attack or angina~\cite{project}. The data contains 328{,}135 labeled respondents, 109{,}379 competition
+respondents and 321 input fields. Only 8.83\% of labeled respondents are
+positive. Predicting ``no disease'' for everyone would give 91.17\%
+accuracy while finding none of the positive cases. We therefore optimize
+F1, which balances precision (how many predicted positives are correct)
+and recall (how many actual positives are found).
+
+\textbf{How we compared models.} We used a stratified 80/20 split
+(seed 42), preserving the class proportions: 262{,}508 development rows
+for training and model selection, and 65{,}627 rows for local testing.
+Within development, we used two-fold cross-validation (seed 104).
+Training on each half and predicting the other gives one out-of-fold
+(OOF) score per development respondent.
+
+Every model produces a score. We chose the cutoff for predicting disease
+by maximizing F1 on the combined OOF scores, checking every distinct score
+as a possible threshold. We then trained on all development rows and
+used this fixed threshold on the local test set. All preprocessing statistics were learned only from the training rows of
+each fold. Exported competition predictions use the same models trained
+on 80\% of the labeled data.
+
+\section{Preparing the Survey Data}
+We used the same cleaning steps for all initial models. Survey answer codes
+need special care: a large number may mean ``refused'' rather than an
+actual measurement. We used field-specific rules from the 2015
+codebook~\cite{codebook}. For example, employment code 7 means ``retired''
+and stays valid, while health-day code 88 means zero days.
+Unknown/refused answers become missing values. For fields mixing units, we use calculated versions already in the
+dataset, such as uniformly measured weight.
+
+We removed administrative identifiers, dates and sampling weights.
+We also excluded \texttt{HAREHAB1}, a rehabilitation question asked after
+a heart attack, because it could reveal the target. State remained a
+categorical feature. Initially, we removed questions with more than 80\%
+missing answers.
+
+For numeric fields, we filled missing answers with the training median
+and standardized values using the training mean and standard deviation.
+We also added binary indicators showing which answers were missing.
+For categorical fields, we used one-hot encoding: separate binary columns
+represent the possible answers, with one category omitted as a reference.
+Missing answers have their own indicator. New categories unseen during
+training use the reference encoding.
+
+Finally, we added an intercept and removed constant or redundant columns
+to make least squares solvable. This pipeline, in
+\texttt{data-preprocessing.py}, kept 174 fields and produced 559 features.
+We did not measure each cleaning step's individual contribution.
+
+\section{Experiments and Results}
+\subsection{Which initial model worked best?}
+We tried the six course methods: least squares, ridge regression, MSE
+regression trained by gradient descent (GD) or single-example stochastic
+GD (SGD), logistic regression, and regularized logistic regression.
+MSE methods fit numeric targets $-1/+1$; logistic methods fit $0/1$ labels.
+Ridge and regularized logistic add an $L_2$ penalty, discouraging large
+weights, with strengths $\lambda=10^{-4}$ and $10^{-3}$ respectively.
+We also tried an ordinary hinge-loss SVM with $\lambda=10^{-3}$.
+
+\begin{table}[t]
+\centering
+\caption{Initial model comparison and the squared-hinge alternative.
+All use the same 559-feature pipeline. Test means the local 20\% split.}
+\label{tab:methods}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Method & OOF F1 & Test F1 & Test accuracy \\
+\midrule
+MSE GD & 0.41935 & 0.41639 & 0.85780 \\
+MSE SGD & 0.41983 & 0.41778 & 0.87267 \\
+Least squares & 0.42036 & 0.41759 & 0.86157 \\
+Ridge, $\lambda=10^{-4}$ & 0.41891 & 0.41706 & 0.85965 \\
+Logistic & 0.42652 & 0.42456 & 0.86947 \\
+Reg. logistic, $\lambda=10^{-3}$ & 0.42315 & 0.41880 & 0.86492 \\
+Hinge SVM, $\lambda=10^{-3}$ & 0.25706 & 0.22464 & 0.75344 \\
+Squared-hinge SVM, $10^{-3}$ & 0.42637 & 0.42332 & 0.86266 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Logistic regression was best (Table~\ref{tab:methods}). The four MSE
+methods gave similar F1 scores. Regularization did not improve least
+squares or logistic at the tested strengths. All initial fits met their
+stopping rules. The ordinary SVM performed poorly, motivating the next
+experiments.
+
+\subsection{Did changing the SVM loss help?}
+Ordinary hinge loss penalizes mistakes and predictions too close to the
+decision boundary. We tried half its square to emphasize larger errors.
+Both use penalty $\lambda\|w\|^2/2$, including the intercept,
+with $\lambda=10^{-3}$.
+
+This change helped substantially: test F1 increased from 0.22464 to
+0.42332, close to logistic regression. Diagnostics on 10{,}000 labeled
+rows showed that ordinary-SVM scores were concentrated near $-1$, with
+standard deviation 0.00634. Its selected threshold was also near $-1$,
+making predictions sensitive to small score differences. Meeting the stopping rule did not guarantee a useful classifier.
+
+\subsection{Did changing regularization or adding features help?}
+Starting from squared hinge, we tested four regularization strengths
+(Table~\ref{tab:stages}). We selected $\lambda=10^{-3}$, which gave the
+best OOF F1. The $10^{-5}$ run did not finish converging within its update
+budget and was excluded from selection. Its score does not represent a fully trained model.
+
+We next added three features: squared standardized age, squared
+standardized BMI, and their product. These let a linear model express
+some curved or combined effects of age and BMI. OOF F1 increased by only
+0.00019, below our 0.001 minimum improvement, so we did not keep them.
+
+\begin{table}[t]
+\centering
+\caption{Squared-hinge experiments. Baseline: $\lambda=10^{-3}$,
+positive weight 1, 80\% missingness cutoff, no added age/BMI terms.
+Each model has its own OOF-selected threshold.}
+\label{tab:stages}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Setting & OOF F1 & Test F1 \\
+\midrule
+$\lambda=10^{-5}$ (not converged) & 0.41592 & 0.41363 \\
+$\lambda=10^{-4}$ & 0.42583 & 0.42463 \\
+Baseline, $\lambda=10^{-3}$ & 0.42637 & 0.42332 \\
+$\lambda=10^{-2}$ & 0.42462 & 0.42386 \\
+Baseline + three age/BMI terms & 0.42656 & 0.42381 \\
+Baseline + positive weight 2 & 0.42801 & 0.42345 \\
+Baseline + positive weight 4 & 0.42836 & 0.42475 \\
+Weight 4 + 95\% cutoff (selected) & \textbf{0.42966} & \textbf{0.42672} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Did emphasizing positive cases and keeping sparse fields help?}
+To address the small positive class, we multiplied positive examples'
+squared-hinge loss by 2 or 4 relative to negatives. We normalized sample
+weights to have mean one, keeping the overall loss scale comparable.
+Weight 4 gave the best OOF F1, improving from 0.42637 to 0.42836.
+Thus, class weighting helped even though the threshold was already tuned.
+
+Keeping weight 4, we then allowed questions with up to 95\% missing
+answers, instead of 80\%. This retained 221 fields and produced 713
+features. OOF F1 rose again, to 0.42966, suggesting that some sparse
+questions still contained useful information. Each accepted change improved both folds and gained at least 0.001
+pooled OOF F1.
+The selected model reached test F1 0.42672, precision 0.34424 and recall
+0.56117: it found about 56\% of positive cases, while about 34\% of its
+positive predictions were correct.
+
+\section{Conclusions and Reproducibility}
+Changing the SVM loss gave the largest improvement in these experiments.
+Class weighting and retaining more sparse fields added smaller gains.
+The tested age/BMI features did not help enough to keep, and the initial
+regularized regression models did not outperform ordinary logistic.
+Our selected weighted squared-hinge SVM improved test F1 by 0.00340 over
+its unweighted baseline and 0.00216 over logistic regression. These are
+small gains on one split; we did not estimate uncertainty across repeated
+splits. The local test set had been inspected in earlier experiments,
+although it was excluded from selection in this staged search.
+
+For reproducibility, all iterative models start at zero. Batch GD stops
+at maximum absolute gradient $10^{-4}$ (cap: one million updates).
+SGD stops when its training half-MSE is within $10^{-4}$ of exact least
+squares at two consecutive checks (cap: 60 million updates).
+Automatic step sizes and whitening (rescaling feature combinations)
+help optimization; whitening is used for SGD and ordinary logistic. SVMs use dual coordinate ascent, updating one example at a time, until
+a bound on remaining optimization error is at most $10^{-4}$.
+The cap is five million updates for the initial comparison and twenty
+million for later experiments. The selected model needed 8.3 million.
+Only converged models were eligible for tuning; we kept the default
+$\lambda$ if within 0.001 OOF F1 of the best candidate.
+
+Code uses NumPy and the standard library; result paths are listed in the
+source comments. No verified leaderboard score is saved for this model.
+Reproduce its settings with:
+\begin{lstlisting}
+python run.py --model svm_squared_hinge \
+  --lambda 0.001 --positive-weight 4 \
+  --max-missing 0.95 --svm-iters 20000000 \
+  --export --output-dir output/report_reproduction
+\end{lstlisting}
+
+\begin{thebibliography}{2}
+\bibitem{project} EPFL CS-433, ``Project 1: Classification,'' Fall 2026,
+provided project description and BRFSS dataset.
+\bibitem{codebook} Centers for Disease Control and Prevention,
+``2015 BRFSS Codebook,''
+\url{https://www.cdc.gov/brfss/annual_data/2015/pdf/codebook15_llcp.pdf}.
+\end{thebibliography}
+\end{document}
